@@ -50,34 +50,37 @@ func printUsage() {
 }
 
 type Star struct {
-	Id        int64
-	Name      string
-	X         float64
-	Y         float64
-	Z         float64
-	Color     float32
-	Magnitude float32
+	Id                int64
+	Name              string
+	X                 float64
+	Y                 float64
+	Z                 float64
+	Color             float32
+	AbsoluteMagnitude float32
+	Spectrum          string
 }
 
 func (star *Star) Json() string {
 	return "{" +
-		"id: " + strconv.Itoa(int(star.Id)) + ", " +
-		"name: \"" + star.Name + "\", " +
-		"x: " + strconv.FormatFloat(star.X, 'f', 15, 32) + ", " +
-		"y: " + strconv.FormatFloat(star.Y, 'f', 15, 32) + ", " +
-		"z: " + strconv.FormatFloat(star.Z, 'f', 15, 32) + ", " +
-		"color: " + strconv.FormatFloat(float64(star.Color), 'f', 15, 32) + ", " +
-		"magnitude: " + strconv.FormatFloat(float64(star.Magnitude), 'f', 15, 32) + "}"
+		"\"id\": " + strconv.Itoa(int(star.Id)) + ", " +
+		"\"name\": \"" + star.Name + "\", " +
+		"\"x\": " + strconv.FormatFloat(star.X, 'f', 15, 32) + ", " +
+		"\"y\": " + strconv.FormatFloat(star.Y, 'f', 15, 32) + ", " +
+		"\"z\": " + strconv.FormatFloat(star.Z, 'f', 15, 32) + ", " +
+		"\"color\": " + strconv.FormatFloat(float64(star.Color), 'f', 15, 32) + ", " +
+		"\"absolute-magnitude\": " + strconv.FormatFloat(float64(star.AbsoluteMagnitude), 'f', 15, 32) + ", " +
+		"\"spectrum\": \"" + star.Spectrum + "\"}"
 }
 
 type NullStar struct {
-	Id        sql.NullInt64
-	Name      sql.NullString
-	X         sql.NullFloat64
-	Y         sql.NullFloat64
-	Z         sql.NullFloat64
-	Color     sql.NullFloat64
-	Magnitude sql.NullFloat64
+	Id                sql.NullInt64
+	Name              sql.NullString
+	X                 sql.NullFloat64
+	Y                 sql.NullFloat64
+	Z                 sql.NullFloat64
+	Color             sql.NullFloat64
+	AbsoluteMagnitude sql.NullFloat64
+	Spectrum          sql.NullString
 }
 
 /// returns a Star, with zero values for any null values in the NullStar
@@ -101,8 +104,11 @@ func (nstar *NullStar) Star() Star {
 	if nstar.Color.Valid {
 		star.Color = float32(nstar.Color.Float64)
 	}
-	if nstar.Magnitude.Valid {
-		star.Magnitude = float32(nstar.Magnitude.Float64)
+	if nstar.AbsoluteMagnitude.Valid {
+		star.AbsoluteMagnitude = float32(nstar.AbsoluteMagnitude.Float64)
+	}
+	if nstar.Spectrum.Valid {
+		star.Spectrum = nstar.Spectrum.String
 	}
 	return star
 }
@@ -117,7 +123,7 @@ func dbManager(user string, pass string, getStar chan struct {
 		log.Fatal(err)
 	}
 
-	sql := "select propername, x, y, z, colorindex, mag from hygxyz where starid = $1"
+	sql := "select propername, x, y, z, colorindex, absmag, spectrum from hygxyz where starid = $1"
 	stmt, err := db.Prepare(sql)
 	if err != nil {
 		log.Fatal(err)
@@ -138,7 +144,7 @@ func dbManager(user string, pass string, getStar chan struct {
 		}
 
 		var nstar NullStar
-		err = rows.Scan(&nstar.Name, &nstar.X, &nstar.Y, &nstar.Z, &nstar.Color, &nstar.Magnitude)
+		err = rows.Scan(&nstar.Name, &nstar.X, &nstar.Y, &nstar.Z, &nstar.Color, &nstar.AbsoluteMagnitude, &nstar.Spectrum)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -183,7 +189,6 @@ func main() {
 				callback chan Star
 			}{int64(starid), getStarCallback}
 			star := <-getStarCallback
-			fmt.Println("DEBUG: 3 star id is " + strconv.Itoa(int(star.Id)))
 			fmt.Fprintf(w, star.Json())
 
 		} else {
