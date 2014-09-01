@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"encoding/json"
 )
 
 const version = "0.0.0"
@@ -50,26 +51,22 @@ func printUsage() {
 }
 
 type Star struct {
-	Id                int64
-	Name              string
-	X                 float64
-	Y                 float64
-	Z                 float64
-	Color             float32
-	AbsoluteMagnitude float32
-	Spectrum          string
+	Id                int64 `json:"id"`
+	Name              string `json:"name"`
+	X                 float64 `json:"x"`
+	Y                 float64 `json:"y"`
+	Z                 float64 `json:"z"`
+	Color             float32 `json:"color"`
+	AbsoluteMagnitude float32 `json:"absolute-magnitude"`
+	Spectrum          string `json:"spectrum"`
 }
 
-func (star *Star) Json() string {
-	return "{" +
-		"\"id\": " + strconv.Itoa(int(star.Id)) + ", " +
-		"\"name\": \"" + star.Name + "\", " +
-		"\"x\": " + strconv.FormatFloat(star.X, 'f', 15, 32) + ", " +
-		"\"y\": " + strconv.FormatFloat(star.Y, 'f', 15, 32) + ", " +
-		"\"z\": " + strconv.FormatFloat(star.Z, 'f', 15, 32) + ", " +
-		"\"color\": " + strconv.FormatFloat(float64(star.Color), 'f', 15, 32) + ", " +
-		"\"absolute-magnitude\": " + strconv.FormatFloat(float64(star.AbsoluteMagnitude), 'f', 15, 32) + ", " +
-		"\"spectrum\": \"" + star.Spectrum + "\"}"
+func (star *Star) Json() []byte {
+	bytes, err := json.Marshal(star);
+	if err != nil {
+		return nil ///< @todo fix to return JSON error
+	}
+	return bytes
 }
 
 type NullStar struct {
@@ -194,7 +191,10 @@ func main() {
 		w.Header().Add("Content-Type", "application/json")
 		w.Header().Add("Content-Length", strconv.Itoa(len(starjson)))
 
-		fmt.Fprintf(w, starjson)
+		_, err = w.Write(starjson)
+		if err != nil {
+			fmt.Println(err)
+		}
 	})
 
 	fmt.Println("Serving on " + strconv.Itoa(int(port)) + "...")
