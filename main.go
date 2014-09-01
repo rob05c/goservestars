@@ -194,7 +194,7 @@ func main() {
 		w.Header().Add("Content-Type", "application/json")
 		w.Header().Add("Content-Length", strconv.Itoa(len(starjson)))
 
-		fmt.Fprintf(w, star.Json())
+		fmt.Fprintf(w, starjson)
 	})
 
 	fmt.Println("Serving on " + strconv.Itoa(int(port)) + "...")
