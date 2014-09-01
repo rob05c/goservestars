@@ -189,6 +189,11 @@ func main() {
 			callback chan Star
 		}{int64(starid), getStarCallback}
 		star := <-getStarCallback
+		starjson := star.Json();
+
+		w.Header().Add("Content-Type", "application/json")
+		w.Header().Add("Content-Length", strconv.Itoa(len(starjson)))
+
 		fmt.Fprintf(w, star.Json())
 	})
 
