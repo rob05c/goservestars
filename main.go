@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	_ "github.com/lib/pq"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"runtime"
 	"strconv"
-	"encoding/json"
 )
 
 const version = "0.0.0"
@@ -51,18 +51,18 @@ func printUsage() {
 }
 
 type Star struct {
-	Id                int64 `json:"id"`
-	Name              string `json:"name"`
+	Id                int64   `json:"id"`
+	Name              string  `json:"name"`
 	X                 float64 `json:"x"`
 	Y                 float64 `json:"y"`
 	Z                 float64 `json:"z"`
 	Color             float32 `json:"color"`
 	AbsoluteMagnitude float32 `json:"absolute-magnitude"`
-	Spectrum          string `json:"spectrum"`
+	Spectrum          string  `json:"spectrum"`
 }
 
 func (star *Star) Json() []byte {
-	bytes, err := json.Marshal(star);
+	bytes, err := json.Marshal(star)
 	if err != nil {
 		return nil ///< @todo fix to return JSON error
 	}
@@ -186,7 +186,7 @@ func main() {
 			callback chan Star
 		}{int64(starid), getStarCallback}
 		star := <-getStarCallback
-		starjson := star.Json();
+		starjson := star.Json()
 
 		w.Header().Add("Content-Type", "application/json")
 		w.Header().Add("Content-Length", strconv.Itoa(len(starjson)))
