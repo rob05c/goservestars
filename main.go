@@ -172,30 +172,24 @@ func main() {
 
 	go dbManager(user, pass, getStar)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/star/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("Serving request to " + r.URL.Path)
+
 		getStarCallback := make(chan Star)
 
-		fmt.Println("Serving request to " + r.URL.Path)
-		if r.URL.Path[:len("/star")] == "/star" && len(r.URL.Path) > len("/star")+1 {
-			staridStr := r.URL.Path[len("/star/"):]
-			starid, err := strconv.Atoi(staridStr)
-			if err != nil {
-				fmt.Println("ignoring request for non-integral star id")
-				return
-			}
-
-			getStar <- struct {
-				id       int64
-				callback chan Star
-			}{int64(starid), getStarCallback}
-			star := <-getStarCallback
-			fmt.Fprintf(w, star.Json())
-
-		} else {
-			fmt.Println("ignoring unknown request")
+		staridStr := r.URL.Path[len("/star/"):]
+		starid, err := strconv.Atoi(staridStr)
+		if err != nil {
+			fmt.Println("ignoring request for non-integral star id")
 			return
 		}
 
+		getStar <- struct {
+			id       int64
+			callback chan Star
+		}{int64(starid), getStarCallback}
+		star := <-getStarCallback
+		fmt.Fprintf(w, star.Json())
 	})
 
 	fmt.Println("Serving on " + strconv.Itoa(int(port)) + "...")
