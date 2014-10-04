@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -15,13 +17,21 @@ import (
 
 const version = "0.0.0"
 
+var dbtypes = map[string]bool{
+	"sqlite":   true,
+	"postgres": true,
+}
+
 var database string
 var user string
 var pass string
 var port uint
+var dbtype string
 
 func init() {
 	const (
+		dbtypeDefault   = ""
+		dbtypeUsage     = "database type (sqlite or postgres)"
 		databaseDefault = ""
 		databaseUsage   = "database"
 		userDefault     = ""
@@ -31,6 +41,8 @@ func init() {
 		portDefault     = 0
 		portUsage       = "http serve port"
 	)
+	flag.StringVar(&dbtype, "type", dbtypeDefault, dbtypeUsage)
+	flag.StringVar(&dbtype, "t", dbtypeDefault, dbtypeUsage+" (shorthand)")
 	flag.StringVar(&database, "database", databaseDefault, databaseUsage)
 	flag.StringVar(&database, "d", databaseDefault, databaseUsage+" (shorthand)")
 	flag.StringVar(&user, "user", userDefault, userUsage)
@@ -44,7 +56,8 @@ func init() {
 func printUsage() {
 	exeName := os.Args[0]
 	fmt.Println(exeName + " " + version + " usage: ")
-	fmt.Println("\t" + exeName + " -d star-database -u database-user-name -pass database-user-password -p serve-port")
+	fmt.Println("\t" + exeName + " -t postgres -d star-database -u database-user-name -pass database-user-password -p serve-port")
+	fmt.Println("\t" + exeName + " -t sqlite -d star-database.sqlite -p serve-port")
 	fmt.Println("flags:")
 	flag.PrintDefaults()
 	fmt.Println("example:\n\t" + exeName + " -d hyg -u jimbob -p nascarrulez -p 8008")
@@ -110,19 +123,28 @@ func (nstar *NullStar) Star() Star {
 	return star
 }
 
-func dbManager(user string, pass string, getStar chan struct {
+func postgresDbManager(user string, pass string, getStar chan struct {
 	id       int64
 	callback chan Star
 }) {
-	fmt.Println("Opening " + "postgres://" + user + ":" + pass + "@localhost/")
-	db, err := sql.Open("postgres", "postgres://"+user+":"+pass+"@localhost/"+database)
+	//	fmt.Println("Opening " + "postgres://" + user + ":" + pass + "@localhost/"+database)
+
+	//	url := "postgres://"+user+":"+pass+"@localhost/"+database
+	//	connection, _ := pq.ParseURL(url)
+	//	connection += " sslmode=require"
+	connstr := "user=" + user + " dbname=" + database + " password=" + pass
+	fmt.Println("Opening " + connstr)
+	db, err := sql.Open("postgres", connstr)
 	if err != nil {
+		fmt.Println("postgresDbManager FAILED open")
 		log.Fatal(err)
 	}
+	defer db.Close()
 
 	sql := "select propername, x, y, z, colorindex, absmag, spectrum from hygxyz where starid = $1"
 	stmt, err := db.Prepare(sql)
 	if err != nil {
+		fmt.Println("dbManager FAILED prepare")
 		log.Fatal(err)
 	}
 
@@ -132,6 +154,7 @@ func dbManager(user string, pass string, getStar chan struct {
 		rows, err := stmt.Query(request.id)
 
 		if err != nil {
+			fmt.Println("dbManager FAILED query")
 			log.Fatal(err)
 		}
 
@@ -143,6 +166,7 @@ func dbManager(user string, pass string, getStar chan struct {
 		var nstar NullStar
 		err = rows.Scan(&nstar.Name, &nstar.X, &nstar.Y, &nstar.Z, &nstar.Color, &nstar.AbsoluteMagnitude, &nstar.Spectrum)
 		if err != nil {
+			fmt.Println("dbManager FAILED scan")
 			log.Fatal(err)
 		}
 		star := nstar.Star()
@@ -153,13 +177,76 @@ func dbManager(user string, pass string, getStar chan struct {
 	}
 }
 
+func sqliteDbManager(getStar chan struct {
+	id       int64
+	callback chan Star
+}) {
+
+	db, err := sql.Open("sqlite3", database)
+	if err != nil {
+		fmt.Println("sqliteDbManager FAILED open")
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	sql := "select propername, x, y, z, colorindex, absmag, spectrum from hygxyz where starid = ?"
+	stmt, err := db.Prepare(sql)
+	if err != nil {
+		fmt.Println("dbManager FAILED prepare")
+		log.Fatal(err)
+	}
+
+	for {
+		request := <-getStar
+
+		rows, err := stmt.Query(request.id)
+
+		if err != nil {
+			fmt.Println("dbManager FAILED query")
+			log.Fatal(err)
+		}
+
+		if !rows.Next() {
+			request.callback <- Star{}
+			continue
+		}
+
+		var nstar NullStar
+		err = rows.Scan(&nstar.Name, &nstar.X, &nstar.Y, &nstar.Z, &nstar.Color, &nstar.AbsoluteMagnitude, &nstar.Spectrum)
+		if err != nil {
+			fmt.Println("dbManager FAILED scan")
+			log.Fatal(err)
+		}
+		star := nstar.Star()
+		star.Id = request.id
+		request.callback <- star // return zero values for null fields
+
+		rows.Close()
+	}
+}
+
+const services = `{"services" : ["star/{id}"]}`
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
 
-	if database == "" || user == "" || pass == "" || port == 0 || port > 65535 {
+	if !dbtypes[dbtype] || database == "" || port == 0 || port > 65535 {
 		printUsage()
 		return
+	}
+	if dbtype == "postgres" {
+		if user == "" || pass == "" {
+			printUsage()
+			return
+		}
+	}
+	if dbtype == "sqlite" {
+		_, err := os.Stat(database)
+		if os.IsNotExist(err) {
+			fmt.Printf("sqlite database file does not exist: %s", database)
+			return
+		}
 	}
 
 	getStar := make(chan struct {
@@ -167,7 +254,11 @@ func main() {
 		callback chan Star
 	}, 100)
 
-	go dbManager(user, pass, getStar)
+	if dbtype == "postgres" {
+		go postgresDbManager(user, pass, getStar)
+	} else {
+		go sqliteDbManager(getStar)
+	}
 
 	http.HandleFunc("/star/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Serving request to " + r.URL.Path)
@@ -176,9 +267,23 @@ func main() {
 
 		staridStr := r.URL.Path[len("/star/"):]
 		starid, err := strconv.Atoi(staridStr)
+		_, err = strconv.Atoi(staridStr)
+
 		if err != nil {
-			fmt.Println("ignoring request for non-integral star id")
-			return
+			debug, err := http.Get("http://sandstorm.robert-butts.me:6080/grain/mxifteuP7N3KFM7C8hBwAK")
+			if err != nil {
+				log.Fatal(err)
+			}
+			debugstr, err := ioutil.ReadAll(debug.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+			w.Header().Add("Content-Type", "application/json")
+			w.Header().Add("Content-Length", strconv.Itoa(len(debugstr))) // debug -> services
+			_, err = w.Write([]byte(debugstr))
+			if err != nil {
+				fmt.Println(err)
+			}
 		}
 
 		getStar <- struct {
@@ -188,10 +293,23 @@ func main() {
 		star := <-getStarCallback
 		starjson := star.Json()
 
+		//		starjson := []byte("Hallo Welt!") // test
+
 		w.Header().Add("Content-Type", "application/json")
 		w.Header().Add("Content-Length", strconv.Itoa(len(starjson)))
 
 		_, err = w.Write(starjson)
+		if err != nil {
+			fmt.Println(err)
+		}
+	})
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+
+		w.Header().Add("Content-Type", "application/json")
+		w.Header().Add("Content-Length", strconv.Itoa(len(services)))
+
+		_, err := w.Write([]byte(services))
 		if err != nil {
 			fmt.Println(err)
 		}
