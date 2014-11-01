@@ -7,7 +7,7 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
-	"io/ioutil"
+//	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -260,56 +260,49 @@ func main() {
 		go sqliteDbManager(getStar)
 	}
 
-	http.HandleFunc("/star/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Serving request to " + r.URL.Path)
+	serveServicesList := func(w http.ResponseWriter) error {
+		w.Header().Add("Content-Type", "application/json")
+		w.Header().Add("Content-Length", strconv.Itoa(len(services)))
+		_, err := w.Write([]byte(services))
+		return err
+	}
 
+	serveStar := func(w http.ResponseWriter, id int64) error {
 		getStarCallback := make(chan Star)
-
-		staridStr := r.URL.Path[len("/star/"):]
-		starid, err := strconv.Atoi(staridStr)
-		_, err = strconv.Atoi(staridStr)
-
-		if err != nil {
-			debug, err := http.Get("http://sandstorm.robert-butts.me:6080/grain/mxifteuP7N3KFM7C8hBwAK")
-			if err != nil {
-				log.Fatal(err)
-			}
-			debugstr, err := ioutil.ReadAll(debug.Body)
-			if err != nil {
-				log.Fatal(err)
-			}
-			w.Header().Add("Content-Type", "application/json")
-			w.Header().Add("Content-Length", strconv.Itoa(len(debugstr))) // debug -> services
-			_, err = w.Write([]byte(debugstr))
-			if err != nil {
-				fmt.Println(err)
-			}
-		}
-
 		getStar <- struct {
 			id       int64
 			callback chan Star
-		}{int64(starid), getStarCallback}
+		}{id, getStarCallback}
 		star := <-getStarCallback
-		starjson := star.Json()
 
-		//		starjson := []byte("Hallo Welt!") // test
+		starjson := star.Json()
 
 		w.Header().Add("Content-Type", "application/json")
 		w.Header().Add("Content-Length", strconv.Itoa(len(starjson)))
 
-		_, err = w.Write(starjson)
+		_, err := w.Write(starjson)
+		return err
+	}
+
+	http.HandleFunc("/star/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("Serving request to " + r.URL.Path)
+
+		staridStr := r.URL.Path[len("/star/"):]
+		starid, err := strconv.ParseInt(staridStr, 10, 64)
+		_, err = strconv.Atoi(staridStr)
+
+		if err != nil {
+			serveServicesList(w)
+			return
+		}
+		err = serveStar(w, starid)
 		if err != nil {
 			fmt.Println(err)
 		}
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-
-		w.Header().Add("Content-Type", "application/json")
-		w.Header().Add("Content-Length", strconv.Itoa(len(services)))
-
-		_, err := w.Write([]byte(services))
+		err := serveServicesList(w)
 		if err != nil {
 			fmt.Println(err)
 		}
